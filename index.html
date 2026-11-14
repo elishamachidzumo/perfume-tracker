@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070816">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<title>Perfume Tracker</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:linear-gradient(160deg,#070816,#1a1040 60%,#0a2a4a);background-attachment:fixed;color:#eef;min-height:100vh;padding-bottom:84px}
+header{padding:calc(18px + env(safe-area-inset-top,0px)) 16px 6px}:root{color-scheme:dark}h1{margin:0;font-size:22px;color:#4df0ff;letter-spacing:1px}
+main{padding:8px 14px}
+.card{background:rgba(10,12,34,.85);border:1px solid rgba(120,140,255,.35);border-radius:16px;padding:14px;margin:10px 0}
+h2{margin:0 0 10px;font-size:16px;color:#c9a8ff}
+input,select{width:100%;padding:11px;margin:4px 0;border-radius:10px;border:1px solid #4a4f9a;background:#0b0d25;color:#fff;font-size:15px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+button{padding:10px;border-radius:10px;border:1px solid #4a4f9a;background:#1b1f4d;color:#fff;font-size:14px}
+.btn{width:100%;background:linear-gradient(90deg,#00c8ff,#b05cff);border:0;font-weight:700;margin-top:6px;padding:12px}
+.del{color:#ff7a9c;border-color:#7a2a45}
+.sub{font-size:13px;color:#aab;margin:6px 0}.warn{color:#ffb020;font-size:12px;font-weight:700}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:#0b0d25;border-radius:12px;padding:10px}.stat small{color:#99a;display:block;font-size:12px}.stat b{font-size:19px}
+.g{color:#4dffa0}.r{color:#ff7a9c}.c{color:#4df0ff}
+.seg{display:flex;gap:6px;margin:6px 0}.seg button{flex:1}.seg .on{background:#00a3d6;border-color:#4df0ff}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#070816;border-top:1px solid #3a3f8a;padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;border:0;background:none;padding:15px 4px;color:#99a;font-size:13px;border-radius:0}nav .on{color:#4df0ff;font-weight:700}
+</style></head><body>
+<header><h1>PERFUME TRACKER</h1><div class="sub" id="st">Works offline. Saved on this phone.</div></header>
+<main id="app"></main>
+<nav>
+<button data-t="home" onclick="go('home')">Dashboard</button>
+<button data-t="stock" onclick="go('stock')">Stock</button>
+<button data-t="sales" onclick="go('sales')">Sales</button>
+<button data-t="exp" onclick="go('exp')">Expenses</button>
+</nav>
+<script>
+let S={products:[],sales:[],expenses:[]};
+try{S=Object.assign(S,JSON.parse(localStorage.getItem('perfumeTracker')||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem('perfumeTracker',JSON.stringify(S))}catch(e){alert('Could not save data. Please export a backup.')}};
+const $=s=>document.querySelector(s);
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const m=n=>(n<0?'-':'')+'$'+Math.abs(Math.round(n*100)/100).toFixed(2);
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const sum=(a,f)=>a.reduce((t,x)=>t+f(x),0);
+const num=id=>parseFloat($('#'+id).value)||0;
+let OK=true;try{localStorage.setItem('_t','1');localStorage.removeItem('_t')}catch(e){OK=false}
+const setSt=t=>{const e=document.getElementById('st');if(e)e.textContent=t};
+if('serviceWorker' in navigator&&/^https?:/.test(location.protocol))navigator.serviceWorker.register('sw.js').catch(()=>{});
+let tab='home',per='month';
+const inR=d=>per==='all'||(per==='today'?d===today():d.slice(0,7)===today().slice(0,7));
+const go=t=>{tab=t;render()};
+function render(){
+  $('#app').innerHTML=({home,stock,sales,exp})[tab]();
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+  if(tab==='sales')fillPrice();
+  if(!OK)setSt('Storage is blocked here. Open this page in Chrome, and export backups.');
+}
+function home(){
+  const sl=S.sales.filter(s=>inR(s.date)),ex=S.expenses.filter(e=>inR(e.date));
+  const rev=sum(sl,s=>s.price*s.qty),cogs=sum(sl,s=>s.cost*s.qty),gp=rev-cogs,exp=sum(ex,e=>e.amt),net=gp-exp;
+  const sv=sum(S.products,p=>p.cost*p.qty),units=sum(S.products,p=>p.qty);
+  const low=S.products.filter(p=>p.qty<=3);
+  const seg=(k,l)=>`<button class="${per===k?'on':''}" onclick="per='${k}';render()">${l}</button>`;
+  return `<div class="seg">${seg('today','Today')}${seg('month','This month')}${seg('all','All time')}</div>
+  <div class="grid">
+   <div class="stat"><small>Sales (revenue)</small><b class="c">${m(rev)}</b></div>
+   <div class="stat"><small>Cost of goods sold</small><b>${m(cogs)}</b></div>
+   <div class="stat"><small>Gross profit</small><b class="g">${m(gp)}</b></div>
+   <div class="stat"><small>Expenses</small><b class="r">${m(exp)}</b></div>
+  </div>
+  <div class="card"><small class="sub">NET PROFIT (gross profit − expenses)</small><br><b style="font-size:28px" class="${net>=0?'g':'r'}">${m(net)}</b>
+  <div class="sub">${sl.reduce((t,s)=>t+s.qty,0)} bottles sold</div></div>
+  <div class="grid">
+   <div class="stat"><small>Bottles in stock</small><b>${units}</b></div>
+   <div class="stat"><small>Stock value (at cost)</small><b>${m(sv)}</b></div>
+  </div>
+  <div class="card"><h2>Low / out of stock</h2>${low.map(p=>`<div class="sub"><b>${esc(p.name)}</b> — ${p.qty} left</div>`).join('')||'<div class="sub">All good.</div>'}</div>
+  <div class="card"><h2>Backup</h2><div class="sub">Works fully offline. Data is saved on this phone only. Export a backup now and then.</div>
+  <div class="row"><button onclick="exportData()">Export backup</button><button onclick="$('#imp').click()">Import backup</button></div>
+  <input type="file" id="imp" accept=".json,application/json" style="display:none" onchange="importData(this)"></div>`;
+}
+function stock(){
+  return `<section class="card"><h2>Add perfume</h2>
+  <input id="pn" placeholder="Perfume name">
+  <div class="row"><input id="ps" placeholder="Size (ml)" type="number" inputmode="numeric"><input id="pq" placeholder="Quantity" type="number" inputmode="numeric"></div>
+  <div class="row"><input id="pc" placeholder="Cost price" type="number" step="any" inputmode="decimal"><input id="pp" placeholder="Selling price" type="number" step="any" inputmode="decimal"></div>
+  <button class="btn" onclick="addP()">Add to stock</button></section>
+  ${S.products.map(p=>`<section class="card"><b>${esc(p.name)}</b> ${p.size?esc(p.size)+'ml':''} ${p.qty<=3?'<span class="warn">LOW</span>':''}
+  <div class="sub">Stock: <b>${p.qty}</b> · Cost ${m(p.cost)} · Price ${m(p.price)} · Profit/bottle ${m(p.price-p.cost)}</div>
+  <div class="row"><button onclick="restock('${p.id}')">+ Restock</button><button onclick="editP('${p.id}')">Edit</button><button class="del" onclick="delP('${p.id}')">Delete</button></div></section>`).join('')||'<p class="sub">No perfumes yet. Add your first one above.</p>'}`;
+}
+function addP(){
+  const name=$('#pn').value.trim();if(!name)return alert('Enter a perfume name');
+  S.products.push({id:uid(),name,size:$('#ps').value.trim(),qty:Math.max(0,Math.floor(num('pq'))),cost:num('pc'),price:num('pp')});
+  save();render();
+}
+function restock(id){
+  const p=S.products.find(x=>x.id===id),q=parseInt(prompt('Bottles to add to '+p.name+':','1'));
+  if(q>0){p.qty+=q;save();render()}
+}
+function editP(id){
+  const p=S.products.find(x=>x.id===id);
+  const n=prompt('Name:',p.name);if(n===null)return;
+  const c=prompt('Cost price:',p.cost);if(c===null)return;
+  const s=prompt('Selling price:',p.price);if(s===null)return;
+  const q=prompt('Quantity in stock:',p.qty);if(q===null)return;
+  p.name=n.trim()||p.name;p.cost=parseFloat(c)||0;p.price=parseFloat(s)||0;p.qty=Math.max(0,parseInt(q)||0);
+  save();render();
+}
+function delP(id){
+  const p=S.products.find(x=>x.id===id);
+  if(confirm('Delete '+p.name+'? Past sales are kept.')){S.products=S.products.filter(x=>x.id!==id);save();render()}
+}
+function sales(){
+  const avail=S.products.filter(p=>p.qty>0);
+  const list=[...S.sales].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  return `<section class="card"><h2>Record a sale</h2>
+  ${avail.length?`<select id="sp" onchange="fillPrice()">${avail.map(p=>`<option value="${p.id}">${esc(p.name)} (${p.qty} in stock)</option>`).join('')}</select>
+  <div class="row"><input id="sq" type="number" inputmode="numeric" value="1" placeholder="Qty"><input id="sx" type="number" step="any" inputmode="decimal" placeholder="Price each"></div>
+  <input id="sd" type="date" value="${today()}">
+  <button class="btn" onclick="addS()">Save sale</button>`:'<div class="sub">No stock available. Add or restock perfumes first.</div>'}</section>
+  ${list.map(s=>`<section class="card"><b>${esc(s.name)}</b> × ${s.qty}
+  <div class="sub">${s.date} · ${m(s.price*s.qty)} · profit <b class="${(s.price-s.cost)>=0?'g':'r'}">${m((s.price-s.cost)*s.qty)}</b></div>
+  <button class="del" onclick="delS('${s.id}')">Delete sale</button></section>`).join('')||'<p class="sub">No sales yet.</p>'}`;
+}
+function fillPrice(){
+  const sel=$('#sp');if(!sel)return;
+  const p=S.products.find(x=>x.id===sel.value);if(p)$('#sx').value=p.price;
+}
+function addS(){
+  const p=S.products.find(x=>x.id===$('#sp').value),q=Math.floor(num('sq'));
+  if(!p||q<1)return alert('Enter a valid quantity');
+  if(q>p.qty)return alert('Only '+p.qty+' in stock');
+  p.qty-=q;
+  S.sales.push({id:uid(),pid:p.id,name:p.name,qty:q,price:num('sx'),cost:p.cost,date:$('#sd').value||today()});
+  save();render();
+}
+function delS(id){
+  const s=S.sales.find(x=>x.id===id);
+  if(!confirm('Delete this sale? Stock will be restored.'))return;
+  const p=S.products.find(x=>x.id===s.pid);if(p)p.qty+=s.qty;
+  S.sales=S.sales.filter(x=>x.id!==id);save();render();
+}
+function exp(){
+  const list=[...S.expenses].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  return `<section class="card"><h2>Add expense</h2>
+  <input id="ed" placeholder="What for? (transport, packaging, rent...)">
+  <div class="row"><input id="ea" type="number" step="any" inputmode="decimal" placeholder="Amount"><input id="edt" type="date" value="${today()}"></div>
+  <button class="btn" onclick="addE()">Save expense</button></section>
+  <div class="sub">Total expenses: <b>${m(sum(S.expenses,e=>e.amt))}</b></div>
+  ${list.map(e=>`<section class="card"><b>${esc(e.desc)}</b>
+  <div class="sub">${e.date} · <b class="r">${m(e.amt)}</b></div><button class="del" onclick="delE('${e.id}')">Delete</button></section>`).join('')||'<p class="sub">No expenses yet.</p>'}`;
+}
+function addE(){
+  const desc=$('#ed').value.trim(),amt=num('ea');
+  if(!desc||amt<=0)return alert('Enter a description and amount');
+  S.expenses.push({id:uid(),desc,amt,date:$('#edt').value||today()});save();render();
+}
+function delE(id){if(confirm('Delete this expense?')){S.expenses=S.expenses.filter(x=>x.id!==id);save();render()}}
+function exportData(){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));
+  a.download='perfume-backup-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();
+}
+function importData(inp){
+  const f=inp.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{
+    const d=JSON.parse(r.result);
+    if(!Array.isArray(d.products)||!Array.isArray(d.sales)||!Array.isArray(d.expenses))throw 0;
+    if(confirm('Replace all current data with this backup?')){S={products:d.products,sales:d.sales,expenses:d.expenses};save();render()}
+  }catch(e){alert('That file is not a valid backup.')}};
+  r.readAsText(f);
+}
+render();
+</script></body></html>
